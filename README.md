@@ -37,6 +37,16 @@ npm run dev -- start --demo 'What is the refund policy?'
 npm run dev -- show RUN_ID
 ```
 
-`--demo` uses a deterministic model substitute and makes no API call. For a live model, set `OPENAI_API_KEY` and `OPENAI_MODEL`, then omit `--demo`. The live adapter uses structured model output as the Day 1 decision contract. Native provider tool calling, real support data, approval, retries, recovery scheduling, and the UI are later increments.
+`--demo` uses a deterministic model substitute and makes no API call. For a live Groq run, create a Groq API key and set it in your current PowerShell session without adding it to the repository:
+
+```powershell
+$env:MODEL_PROVIDER = 'groq' # default
+$secureKey = Read-Host 'Groq API key' -AsSecureString
+$env:GROQ_API_KEY = [System.Net.NetworkCredential]::new('', $secureKey).Password
+Remove-Variable secureKey
+npm run dev -- start 'What is the refund policy?'
+```
+
+The default Groq model is `openai/gpt-oss-120b`. Override it with `GROQ_MODEL` if needed. To use OpenAI instead, set `MODEL_PROVIDER=openai`, `OPENAI_API_KEY`, and `OPENAI_MODEL`. The hosted adapter uses structured model output as the Day 1 decision contract. Native provider tool calling, real support data, approval, retries, recovery scheduling, and the UI are later increments.
 
 If the process stops during a run, wait two minutes for the claim to expire and run `npm run dev -- resume RUN_ID --demo` (or omit `--demo` for the live adapter). The event log lets the worker avoid repeating a persisted tool step. The current demo tool is read-only; external write tools require stronger guarantees.

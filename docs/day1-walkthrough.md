@@ -7,7 +7,7 @@ The Day 1 goal is to turn a customer request into a durable run that can survive
 1. `src/cli.ts` creates an `AgentRun` and invokes the engine. The CLI is temporary; a later API will call the same engine.
 2. `src/repository.ts` writes a `pending` row. It then claims the run with one conditional PostgreSQL `UPDATE`. The lease token identifies the worker allowed to write its next step.
 3. `src/engine.ts` reads the event history. If the last event is a tool decision, it executes the registered read-only tool. Otherwise it asks the model for one decision. It persists that decision *before* acting on it.
-4. `src/model.ts` contains two adapters: the deterministic demo adapter and a live OpenAI Responses adapter. Both return the same validated `Decision` type.
+4. `src/model.ts` contains a deterministic demo adapter and a hosted Responses adapter for Groq or OpenAI. Both return the same validated `Decision` type.
 5. The engine completes after a final decision or fails when the five-decision limit is reached.
 
 ## State versus history
