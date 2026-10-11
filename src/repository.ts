@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
-import type { AgentRun, Decision, RunEvent } from './types.js';
+import type { AgentRun, RunEvent } from './types.js';
 
 const { Pool } = pg;
 type Row = Record<string, unknown>;
@@ -18,14 +18,21 @@ export class RunRepository {
   async close(): Promise<void> { await this.pool.end(); }
 
   async migrate(): Promise<void> {
-    const path = fileURLToPath(new URL('../sql/001_agent_runs.sql', import.meta.url));
-    await this.pool.query(await readFile(path, 'utf8'));
+    for (const name of ['001_agent_runs.sql', '002_knowledge.sql', '003_embeddings.sql', '004_grounded_runs.sql']) {
+      const path = fileURLToPath(new URL(`../sql/${name}`, import.meta.url));
+      await this.pool.query(await readFile(path, 'utf8'));
+    }
   }
 
-  async create(requestText: string): Promise<AgentRun> {
+  async create(requestText: string, tenantId = 'demo', ragEnabled = false): Promise<AgentRun> {
     const text = requestText.trim();
     if (!text || text.length > 10000) throw new Error('Request must contain 1 to 10,000 characters');
-    const result = await this.pool.query('INSERT INTO agent_runs (id, request_text) VALUES ($1, $2) RETURNING *', [randomUUID(), text]);
+    const tenant = tenantId.trim();
+    if (!tenant || tenant.length > 128) throw new Error('Tenant must contain 1 to 128 characters');
+    const result = await this.pool.query(`INSERT INTO agent_runs
+      (id, request_text, tenant_id, rag_enabled, workflow_version)
+      VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [randomUUID(), text, tenant, ragEnabled, ragEnabled ? 2 : 1]);
     return mapRun(result.rows[0]);
   }
 
@@ -88,7 +95,8 @@ export class RunRepository {
 
 function mapRun(row: Row): AgentRun {
   return {
-    id: String(row.id), requestText: String(row.request_text),
+    id: String(row.id), tenantId: String(row.tenant_id),
+    requestText: String(row.request_text), ragEnabled: Boolean(row.rag_enabled),
     status: row.status as AgentRun['status'],
     outputText: row.output_text as string | null,
     errorText: row.error_text as string | null,
