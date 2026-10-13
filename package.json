@@ -5,22 +5,28 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/cli.ts",
-    "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test src/knowledge-chunk.test.ts src/retrieval.test.ts src/engine.test.ts",
-    "test:db": "node --import tsx --test src/retrieval.db.test.ts",
-    "build": "tsc",
+    "typecheck": "tsc --noEmit && tsc -p web/tsconfig.json --noEmit",
+    "test": "node --import tsx --test src/knowledge-chunk.test.ts src/retrieval.test.ts src/engine.test.ts src/workflow.test.ts",
+    "test:db": "node --import tsx --test src/retrieval.db.test.ts src/workflow.db.test.ts",
+    "build": "tsc && vite build",
+    "ui:dev": "vite",
     "start": "node dist/cli.js"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.3.1",
     "openai": "^6.49.0",
     "pg": "^8.23.1",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
     "@types/pg": "^8.23.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4"
   }
 }

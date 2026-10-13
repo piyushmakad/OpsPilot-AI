@@ -1,6 +1,58 @@
 # OpsPilot AI
 
-One evolving full stack AI engineering project. Day 1 provides a bounded agent execution loop and PostgreSQL-backed `AgentRun` state. Day 2 adds tenant-aware Markdown ingestion, hybrid retrieval, and grounded agent runs with citations.
+One evolving full stack AI engineering project. Day 1 provides a bounded agent execution loop and PostgreSQL-backed `AgentRun` state. Day 2 adds tenant-aware Markdown ingestion, hybrid retrieval, and grounded agent runs with citations. Day 3 adds a durable multi-step refund agent, local MCP-style capabilities, approvals, retries, reconciliation, and a React run inspector.
+
+## Day 3: run the local refund agent
+
+Day 3 adds **workflow version 3** to the same `agent_runs` and `agent_run_events` tables. The Day 1 and Day 2 commands below still work. The payment and WhatsApp providers are local PostgreSQL-backed simulations; they make no real financial or messaging calls. `seed-day3` creates only synthetic demo data under tenant `demo-refunds`; it does not read your private Markdown files.
+
+In PowerShell, use the same `DATABASE_URL` that already works for your local PostgreSQL instance. Then:
+
+```powershell
+npm install
+npm run dev -- migrate
+npm run dev -- seed-day3
+$env:DEMO_CUSTOMER_PASSWORD = 'choose-a-local-customer-password'
+$env:DEMO_MANAGER_PASSWORD = 'choose-a-different-manager-password'
+npm run dev -- serve
+```
+
+`seed-day3` indexes the synthetic refund policy with the existing local BGE embedding model. Its first run may download that model. In another terminal, run `npm run ui:dev` and open `http://127.0.0.1:5173`. Log in as **customer** with the customer password to start a scenario. Switch to **manager** with the manager password to approve or reject a high-value refund. The API listens only on `127.0.0.1:8787`; Vite proxies `/api` to it.
+
+If `GROQ_API_KEY` is set, the server defaults to the hosted model so Groq chooses each logical next step. Without a provider key, it defaults to `DemoWorkflowModel`, a deterministic teaching script. Set `DAY3_MODEL=demo` or `DAY3_MODEL=hosted` to select explicitly. With the hosted model, the selected synthetic policy excerpt and normalized mock account/payment facts are sent to Groq as model input. The application still validates every proposed tool call and side effect. The refund provider is behind [RefundProvider](src/workflow-provider.ts); the included implementation is a local simulation with fault injection.
+
+You can also inspect a run from the CLI:
+
+```powershell
+npm run dev -- workflow start small --demo
+npm run dev -- workflow start large-approve --demo
+npm run dev -- workflow approvals
+npm run dev -- workflow approve APPROVAL_ID
+npm run dev -- workflow resume RUN_ID --demo
+npm run dev -- workflow show RUN_ID
+```
+
+`workflow tick --demo` processes due retries and unknown outcomes once. The API's built-in worker does this continuously. `AUTO_REFUND_MAX_CENTS` controls the automatic threshold (default `10000`, or $100). The approval expires after 24 hours. The CLI's approval commands assume the local shell is trusted; the HTTP API requires the manager password for approval decisions.
+
+Each seeded scenario has one payment. After demonstrating it, stop `serve`, run `npm run dev -- reset-day3`, then `npm run dev -- seed-day3` to replay all scenarios from clean synthetic state. Reset removes only Day 3 demo runs and payments under `demo-refunds`; it leaves your other tenants and documents alone.
+
+### What to inspect
+
+| Scenario | Expected trace |
+| --- | --- |
+| `small` | Plan → payment lookup → parallel account, detail, and RAG reads → refund → WhatsApp → completed |
+| `large-approve` | Refund proposal → `waiting_approval` → manager approval → revalidation → refund → notification |
+| `large-reject` | Approval rejection → no provider call or notification |
+| `already-refunded` | Payment observation → revised plan → explanation, with no second refund |
+| `provider-503` | First attempt returns 503 → `retry_scheduled` → same idempotency key on retry |
+| `timeout` | Provider commits refund but response times out → `waiting_external` → reconciliation finds success → notification |
+| `no-payment` | No successful payment → plan version 2 → no downstream policy or refund tools |
+
+The LLM proposes plans and tool calls. [The Day 3 engine](src/workflow-engine.ts) checks exposure, schemas, read/write ordering, iteration and tool limits, and required observations. [The workflow store](src/workflow-store.ts) checks the requester and payment, exact full amount, the 30-day hard limit, approval, and the durable idempotency record. It rechecks these after approval. Retrieved policy helps the agent decide; it cannot override those checks. An uncertain provider outcome is reconciled before another attempt, and the notification record is unique per refund operation.
+
+The local capability client in [workflow-tools.ts](src/workflow-tools.ts) separates tool definitions from execution. It is deliberately MCP-style, without an external MCP transport. The [React inspector](web/src/main.tsx) shows the goal, plan versions, sequential and parallel batches, latency, operation state, approval, idempotency key, and final response. It stores short decision summaries, not hidden chain-of-thought.
+
+Run `npm test` for local tests, `npm run typecheck` for both TypeScript projects, and `npm run build` for the Node and React builds. After `migrate`, `npm run test:db` runs optional PostgreSQL tests with temporary synthetic tenants and cleans up its records. It requires `DATABASE_URL` in that shell.
 
 ## Why this design
 

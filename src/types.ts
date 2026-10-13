@@ -14,11 +14,12 @@ export const decisionSchema = z.discriminatedUnion('kind', [
 ]);
 
 export type Decision = z.infer<typeof decisionSchema>;
-export type RunStatus = 'pending' | 'running' | 'completed' | 'failed';
+export type RunStatus = 'pending' | 'running' | 'waiting_approval' | 'waiting_input' | 'retry_scheduled' |
+  'waiting_external' | 'completed' | 'failed' | 'escalated';
 export type RunEvent = {
   runId: string;
   sequence: number;
-  kind: 'decision' | 'tool_result' | 'retrieval';
+  kind: 'decision' | 'tool_result' | 'retrieval' | 'workflow_decision' | 'workflow_result';
   payload: unknown;
   createdAt: Date;
 };
@@ -33,6 +34,9 @@ export type AgentRun = {
   leaseToken: string | null;
   leaseExpiresAt: Date | null;
   workflowVersion: number;
+  actorId: string | null;
+  scenario: string | null;
+  nextActionAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 };

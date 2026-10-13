@@ -8,7 +8,7 @@ const { Pool } = pg;
 type Row = Record<string, unknown>;
 
 export class RunRepository {
-  constructor(private readonly pool: pg.Pool) {}
+  constructor(readonly pool: pg.Pool) {}
 
   static fromEnvironment(): RunRepository {
     if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required');
@@ -18,9 +18,25 @@ export class RunRepository {
   async close(): Promise<void> { await this.pool.end(); }
 
   async migrate(): Promise<void> {
-    for (const name of ['001_agent_runs.sql', '002_knowledge.sql', '003_embeddings.sql', '004_grounded_runs.sql']) {
-      const path = fileURLToPath(new URL(`../sql/${name}`, import.meta.url));
-      await this.pool.query(await readFile(path, 'utf8'));
+    await this.pool.query(`CREATE TABLE IF NOT EXISTS schema_migrations
+      (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`);
+    for (const name of ['001_agent_runs.sql', '002_knowledge.sql', '003_embeddings.sql',
+      '004_grounded_runs.sql', '005_workflows.sql']) {
+      const client = await this.pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query('SELECT pg_advisory_xact_lock(91273481)');
+        const applied = await client.query('SELECT 1 FROM schema_migrations WHERE name = $1', [name]);
+        if (!applied.rowCount) {
+          const path = fileURLToPath(new URL(`../sql/${name}`, import.meta.url));
+          await client.query(await readFile(path, 'utf8'));
+          await client.query('INSERT INTO schema_migrations (name) VALUES ($1)', [name]);
+        }
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      } finally { client.release(); }
     }
   }
 
@@ -59,6 +75,14 @@ export class RunRepository {
         (status = 'running' AND lease_expires_at < now()))
       RETURNING id`, [id, token]);
     return result.rowCount ? token : null;
+  }
+
+  async renewLease(id: string, token: string): Promise<boolean> {
+    const result = await this.pool.query(`UPDATE agent_runs
+      SET lease_expires_at = now() + interval '2 minutes', updated_at = now()
+      WHERE id = $1 AND status = 'running' AND lease_token = $2
+        AND lease_expires_at > now()`, [id, token]);
+    return Boolean(result.rowCount);
   }
 
   async append(id: string, token: string, kind: RunEvent['kind'], payload: unknown): Promise<void> {
@@ -103,6 +127,9 @@ function mapRun(row: Row): AgentRun {
     leaseToken: row.lease_token as string | null,
     leaseExpiresAt: row.lease_expires_at as Date | null,
     workflowVersion: Number(row.workflow_version),
+    actorId: row.actor_id as string | null ?? null,
+    scenario: row.scenario as string | null ?? null,
+    nextActionAt: row.next_action_at as Date | null ?? null,
     createdAt: row.created_at as Date, updatedAt: row.updated_at as Date,
   };
 }

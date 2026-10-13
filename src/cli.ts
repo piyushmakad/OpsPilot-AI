@@ -7,6 +7,9 @@ import { BgeSmallEmbeddings } from './embedding.js';
 import { KnowledgeSearch } from './retrieval.js';
 import { readFile } from 'node:fs/promises';
 import { basename } from 'node:path';
+import { WorkflowStore, SCENARIOS, type Scenario, DEMO_TENANT } from './workflow-store.js';
+import { createWorkflowRuntime } from './workflow-runtime.js';
+import { serve } from './api.js';
 
 const [command, ...args] = process.argv.slice(2);
 const repository = RunRepository.fromEnvironment();
@@ -15,6 +18,58 @@ try {
   if (command === 'migrate') {
     await repository.migrate();
     console.log('Migration applied');
+  } else if (command === 'seed-day3') {
+    const store = new WorkflowStore(repository);
+    await store.seed();
+    const knowledge = KnowledgeRepository.fromEnvironment();
+    try {
+      await knowledge.ingest({ tenantId: DEMO_TENANT, documentKey: 'refund-policy', version: 1,
+        title: 'Synthetic refund policy', source: 'synthetic-day3-refund-policy.md', status: 'ACTIVE',
+        markdown: `# Synthetic refund policy\n\n## Eligibility\n\nA successful full USD payment may be refunded within 30 days of payment. An already refunded payment must not be refunded again. Payments over the configured automatic threshold require manager approval. Notify the customer only after confirmed refund success.`,
+      });
+    } finally { await knowledge.close(); }
+    const search = KnowledgeSearch.fromEnvironment(new BgeSmallEmbeddings());
+    try { console.log(JSON.stringify({ seeded: SCENARIOS, indexedChunks: await search.indexPending(DEMO_TENANT) })); }
+    finally { await search.close(); }
+  } else if (command === 'reset-day3') {
+    await new WorkflowStore(repository).resetDemo();
+    console.log('Synthetic Day 3 runs and payments reset. Run seed-day3 before the next demo.');
+  } else if (command === 'serve') {
+    await serve(repository);
+  } else if (command === 'workflow') {
+    const [action, ...rest] = args;
+    const store = new WorkflowStore(repository);
+    if (action === 'start') {
+      const [scenario, ...words] = rest;
+      if (!SCENARIOS.includes(scenario as Scenario)) throw new Error(`Scenario must be: ${SCENARIOS.join(', ')}`);
+      const demo = words.includes('--demo');
+      const goal = words.filter(w => w !== '--demo').join(' ') ||
+        'Refund my latest payment and WhatsApp me when it is done.';
+      const run = await store.create(goal, scenario as Scenario);
+      const runtime = createWorkflowRuntime(repository, demo);
+      try { await runtime.engine.execute(run.id); }
+      finally { await runtime.knowledge.close(); }
+      console.log(JSON.stringify({ run: await repository.get(run.id), events: await repository.events(run.id) }, null, 2));
+    } else if (action === 'resume' && rest[0]) {
+      const runtime = createWorkflowRuntime(repository, rest.includes('--demo'));
+      try { console.log(await runtime.engine.execute(rest[0])); }
+      finally { await runtime.knowledge.close(); }
+      console.log(JSON.stringify(await repository.get(rest[0]), null, 2));
+    } else if (action === 'tick') {
+      const runtime = createWorkflowRuntime(repository, rest.includes('--demo'));
+      try {
+        await store.expireApprovals();
+        for (const id of await store.dueRuns()) await runtime.engine.execute(id);
+      }
+      finally { await runtime.knowledge.close(); }
+    } else if (action === 'approve' || action === 'reject') {
+      if (!rest[0]) throw new Error('Approval ID required');
+      console.log(await store.decideApproval(rest[0], action === 'approve' ? 'APPROVED' : 'REJECTED', 'local-manager'));
+    } else if (action === 'approvals') {
+      console.log(JSON.stringify(await store.approvals(), null, 2));
+    } else if (action === 'show' && rest[0]) {
+      console.log(JSON.stringify({ run: await repository.get(rest[0]), events: await repository.events(rest[0]) }, null, 2));
+    } else throw new Error('Usage: workflow start <scenario> [--demo] [goal] | resume <id> [--demo] | tick [--demo] | approvals | approve <id> | reject <id> | show <id>');
   } else if (command === 'ingest') {
     const [tenantId, documentKey, versionText, path, ...flags] = args;
     const version = Number(versionText);
@@ -68,7 +123,7 @@ try {
   } else if (command === 'show' && args[0]) {
     console.log(JSON.stringify({ run: await repository.get(args[0]), events: await repository.events(args[0]) }, null, 2));
   } else {
-    throw new Error('Usage: migrate | ingest <tenant> <key> <version> <path> [--deprecated] | index <tenant> | search <tenant> <query> | start [--rag] [--tenant ID] [--demo] "request" | resume <run-id> [--demo] | show <run-id>');
+    throw new Error('Usage: migrate | seed-day3 | reset-day3 | serve | workflow ... | ingest <tenant> <key> <version> <path> [--deprecated] | index <tenant> | search <tenant> <query> | start [--rag] [--tenant ID] [--demo] "request" | resume <run-id> [--demo] | show <run-id>');
   }
 } catch (error) {
   console.error(error);

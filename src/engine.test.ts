@@ -24,6 +24,7 @@ class MemoryRuns {
       id: 'run-1', tenantId: 'demo', requestText: 'How does ingress work?', ragEnabled,
       status: 'pending', outputText: null, errorText: null, leaseToken: null,
       leaseExpiresAt: null, workflowVersion: ragEnabled ? 2 : 1,
+      actorId: null, scenario: null, nextActionAt: null,
       createdAt: now, updatedAt: now,
     };
   }
