@@ -5,6 +5,8 @@ import { DemoModel, type AgentModel } from './model.js';
 import { RunRepository } from './repository.js';
 import type { KnowledgeSearch, SearchCandidate } from './retrieval.js';
 import { selectEvidence } from './evidence.js';
+import { buildContext } from './context-builder.js';
+import type { ContextService } from './context-service.js';
 import type { AgentRun, RunEvent } from './types.js';
 
 const now = new Date();
@@ -104,4 +106,25 @@ test('preserves the Day 1 demo tool path', async () => {
   await new AgentEngine(runs.repository(), new DemoModel()).execute('run-1');
   assert.equal(runs.run.status, 'completed');
   assert.deepEqual(runs.entries.map(event => event.kind), ['decision', 'tool_result', 'decision']);
+});
+
+test('persists selected context before model call and reuses it after a restart', async () => {
+  const runs = new MemoryRuns(true);
+  const snapshot = selectEvidence(runs.run.requestText, 'demo', [candidate]);
+  await runs.append('', '', 'retrieval', snapshot);
+  const context = buildContext({ run: runs.run, events: runs.entries, evidence: snapshot,
+    messages: [], summary: null, memories: [] });
+  await runs.append('', '', 'context', context);
+  const service = { warmup: async () => {}, build: async () => {
+    throw new Error('Context should be reused');
+  } } as Pick<ContextService, 'build' | 'warmup'>;
+  const model: AgentModel = { async decide(_request, _events, visible, selected) {
+    assert.equal(selected?.promptVersion, 'day4-v1');
+    assert.equal(visible?.selected[0]?.id, 'S1');
+    return { kind: 'final', text: 'Ingress routes traffic [S1].',
+      outcome: 'answered', citations: ['S1'] };
+  } };
+  await new AgentEngine(runs.repository(), model, knowledge([]), service).execute('run-1');
+  assert.deepEqual(runs.entries.map(event => event.kind), ['retrieval', 'context', 'decision']);
+  assert.equal(runs.run.status, 'completed');
 });

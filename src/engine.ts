@@ -4,6 +4,8 @@ import type { AgentModel } from './model.js';
 import { RunRepository } from './repository.js';
 import type { KnowledgeSearch } from './retrieval.js';
 import { evidenceSnapshotSchema, formatGroundedFinal, selectEvidence } from './evidence.js';
+import { contextSnapshotSchema } from './context-builder.js';
+import type { ContextService } from './context-service.js';
 
 const MAX_MODEL_DECISIONS = 5;
 
@@ -12,6 +14,7 @@ export class AgentEngine {
     private readonly repository: RunRepository,
     private readonly model: AgentModel,
     private readonly knowledge?: Pick<KnowledgeSearch, 'warmup' | 'search'>,
+    private readonly contextService?: Pick<ContextService, 'build' | 'warmup'>,
   ) {}
 
   async execute(runId: string): Promise<void> {
@@ -23,6 +26,7 @@ export class AgentEngine {
       // Model download may outlast the run lease, so warm up before claiming it.
       if (!hasSnapshot) await this.knowledge.warmup();
     }
+    await this.contextService?.warmup(initialRun);
     const token = await this.repository.claim(runId);
     if (!token) throw new Error('Run is complete or currently claimed by another worker');
     try {
@@ -48,11 +52,23 @@ export class AgentEngine {
           return;
         }
 
+        const previousContext = latest?.kind === 'context'
+          ? contextSnapshotSchema.parse(latest.payload) : null;
+        const context = previousContext && latest && previousContext.forSequence === latest.sequence - 1
+          ? previousContext : null;
+        const mostRecentContextEvent = [...events].reverse().find(event => event.kind === 'context');
+        const modelContext = context ?? (mostRecentContextEvent
+          ? contextSnapshotSchema.parse(mostRecentContextEvent.payload) : null);
+        const visibleEvidence = evidence && modelContext
+          ? { ...evidence, selected: evidence.selected.filter(source =>
+            modelContext.selected.some(item => item.source === 'rag' && item.id === source.id)) }
+          : evidence;
+
         if (latest?.kind === 'decision') {
           const decision = decisionSchema.parse(latest.payload);
           if (decision.kind === 'final') {
             const text = run.ragEnabled
-              ? formatGroundedFinal(decision, evidence!) : decision.text;
+              ? formatGroundedFinal(decision, visibleEvidence!) : decision.text;
             await this.repository.finish(runId, token, 'completed', text);
             return;
           }
@@ -66,12 +82,18 @@ export class AgentEngine {
           await this.repository.finish(runId, token, 'failed', 'Model decision limit reached');
           return;
         }
-        const decision = decisionSchema.parse(await this.model.decide(run.requestText, events, evidence));
+        if (this.contextService && !context) {
+          const snapshot = await this.contextService.build(run, events, evidence);
+          await this.repository.append(runId, token, 'context', snapshot);
+          continue;
+        }
+        const decision = decisionSchema.parse(await this.model.decide(run.requestText, events,
+          visibleEvidence, context));
         if (run.ragEnabled && decision.kind === 'tool') {
           throw new Error('Demo policy tool is unavailable in a grounded run');
         }
         if (run.ragEnabled && decision.kind === 'final') {
-          formatGroundedFinal(decision, evidence!);
+          formatGroundedFinal(decision, visibleEvidence!);
         }
         await this.repository.append(runId, token, 'decision', decision);
       }

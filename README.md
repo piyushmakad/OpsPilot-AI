@@ -178,4 +178,65 @@ npm run dev -- conversation add demo piyush CONVERSATION_ID assistant 'Understoo
 npm run dev -- conversation show demo piyush CONVERSATION_ID
 ```
 
-The CLI is a trusted local developer interface. It does not authenticate end users; do not expose it as an HTTP memory-write endpoint. No stored memory is inserted into LLM prompts yet, and these commands do not call Groq. Run `npm test` for local checks and `npm run test:db` for PostgreSQL behavior after migration.
+The CLI is a trusted local developer interface. It does not authenticate end users; do not expose it as an HTTP memory-write endpoint. These explicit memory commands do not call Groq. Run `npm test` for local checks and `npm run test:db` for PostgreSQL behavior after migration.
+
+## Day 4, slice 2: scoped memory search and context preview
+
+Run `npm run dev -- migrate` again to add the memory full-text index. Search filters tenant, user, scope, active status, and expiry in SQL **before** ranking. It then scores keyword relevance, importance, confidence, source, scope specificity, and age; repeated keys are collapsed to one result. This is keyword retrieval, not semantic embedding search yet. Test with facts you entered in slice 1:
+
+```powershell
+npm run dev -- memory search demo piyush opspilot - 'Which database did we choose?'
+npm run dev -- memory search demo piyush - - 'Which database did we choose?'
+npm run dev -- context preview demo piyush opspilot - 200 'Which database did we choose?'
+```
+
+The first search should find the project database fact; the second should not because it omits the project scope. If you have a conversation UUID, substitute it for the second `-` in `context preview` to see recent raw messages alongside memories. Try a budget of `64` to see `dropped` entries. The token count is a planning estimate, not provider usage. This early preview command is read only; `context inspect RUN_ID` below shows the actual live context snapshot.
+
+## Day 4 end-to-end: memory, summaries, and live context
+
+Run the latest migrations first. Set `DATABASE_URL` and `GROQ_API_KEY` in your PowerShell session as in the setup sections above. `conversation learn` and live `start` send **the new user message** to Groq for structured memory extraction. Compaction sends older conversation messages and the previous summary to Groq. A grounded `start --rag` also sends selected knowledge excerpts, as described above. Keep private documents out of these commands unless that is intentional.
+
+The extractor returns at most five candidates and a quote from the message for each. Application code checks the quote, confidence, importance, tenant/user identity, allowed scope, TTL, and memory versioning. A low-value message can yield zero memories while still remaining in raw history. A failed extraction leaves the raw message available for inspection. Only a trusted local CLI can issue these developer commands; the demo HTTP API does not expose arbitrary memory writes.
+
+```powershell
+cd 'D:\Piyush Projects\OpsPilot AI'
+npm run dev -- migrate
+npm test
+npm run test:db
+npm run dev -- conversation create demo piyush opspilot
+```
+
+Copy the returned UUID and replace `CONVERSATION_ID` below. These steps let you see each layer separately:
+
+```powershell
+# Extract an explicit project decision. Inspect versioning with memory history.
+npm run dev -- conversation learn demo piyush CONVERSATION_ID --project=opspilot 'For OpsPilot use PostgreSQL.'
+npm run dev -- memory list demo piyush project opspilot
+npm run dev -- memory history demo piyush project opspilot database # use the key shown by memory list
+
+# Build local BGE vectors and compare keyword with hybrid memory retrieval.
+npm run dev -- memory index demo
+npm run dev -- memory search demo piyush opspilot - 'Which database did we choose?'
+npm run dev -- memory search demo piyush opspilot - --semantic 'What data store did we select?'
+
+# Run the real agent with this user, project, and conversation context.
+npm run dev -- start --tenant demo --user piyush --project opspilot --conversation CONVERSATION_ID 'Which database did we choose for OpsPilot?'
+npm run dev -- context inspect RUN_ID
+npm run dev -- conversation show demo piyush CONVERSATION_ID
+```
+
+`start` automatically appends and extracts the new user message, compacts older history if the unsummarized text crosses the threshold, and appends the final assistant answer transactionally with run completion. `context inspect` shows the selected data snapshot persisted before each model decision, including source labels, dropped items, and estimated tokens. The hosted model receives that selected data alongside its application instructions and exposed tool definitions. On recovery, an unchanged snapshot is reused. Set `CONTEXT_TOKEN_BUDGET` to change the total estimated budget (default 8,000; minimum 256). Token counts are estimates rather than provider usage.
+
+To force a summarization exercise, add at least seven messages and use a low threshold. The latest six remain raw; the older messages are compressed into a structured summary while the full raw history stays in the database:
+
+```powershell
+npm run dev -- conversation add demo piyush CONVERSATION_ID user 'Current goal: finish Day 4 context engineering.'
+# Add six more distinct messages with conversation add, then:
+npm run dev -- conversation compact demo piyush CONVERSATION_ID 32
+npm run dev -- conversation summary demo piyush CONVERSATION_ID
+npm run dev -- conversation show demo piyush CONVERSATION_ID
+```
+
+The live context builder places the current request and run state first, then selected RAG policy, live tool observations, summary, recent raw messages, and relevant active memory. Structured live facts suppress older memory with the same key. Retrieved policy suppresses competing procedural memory. These are deterministic selection rules; model instructions also mark retrieved and historical content as untrusted. The Day 3 refund workflow still applies its existing validation and approval checks before any action. Enable semantic memory retrieval during live runs with `$env:MEMORY_SEMANTIC = '1'` after `memory index`; leave it unset to use faster keyword retrieval. The default similarity cutoff and ranking weights are starting values that need labeled evaluation in Day 5.
+
+New runs link their exact incoming conversation message to the run. The context builder excludes that one message from recent history because the request is already present as a required item. Earlier repeated questions remain available as history. Run `npm run dev -- migrate` after updating the code to add this link; existing run snapshots remain immutable.

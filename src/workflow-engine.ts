@@ -6,6 +6,8 @@ import { exposedTools, toolDefinitions, validateCall,
   type CapabilityClient, type ToolCall, type ToolObservation } from './workflow-tools.js';
 import type { WorkflowDecision, WorkflowModel } from './workflow-model.js';
 import { MockRefundProvider, type RefundProvider } from './workflow-provider.js';
+import { contextSnapshotSchema } from './context-builder.js';
+import type { ContextService } from './context-service.js';
 
 const MAX_DECISIONS = 20;
 const MAX_CALLS = 30;
@@ -18,13 +20,16 @@ export class WorkflowEngine {
   constructor(private readonly runs: RunRepository, private readonly store: WorkflowStore,
     private readonly model: WorkflowModel, private readonly capabilities: CapabilityClient,
     private readonly thresholdCents = Number(process.env.AUTO_REFUND_MAX_CENTS ?? 10000),
-    private readonly provider: RefundProvider = new MockRefundProvider(store)) {
+    private readonly provider: RefundProvider = new MockRefundProvider(store),
+    private readonly contextService?: Pick<ContextService, 'build' | 'warmup'>) {
     if (!Number.isSafeInteger(thresholdCents) || thresholdCents < 0) {
       throw new Error('AUTO_REFUND_MAX_CENTS must be a nonnegative integer');
     }
   }
 
   async execute(id: string): Promise<Outcome> {
+    const candidate = await this.runs.get(id);
+    if (candidate) await this.contextService?.warmup(candidate);
     const token = await this.store.claim(id);
     if (!token) return 'unclaimed';
     const started = Date.now();
@@ -92,7 +97,17 @@ export class WorkflowEngine {
           await this.runs.finish(id, token, 'failed', 'Agent decision or tool-call limit reached');
           return 'completed';
         }
-        const decision = await this.model.decide(run.requestText, events, exposedTools(run.requestText));
+        const previousContext = latest?.kind === 'context'
+          ? contextSnapshotSchema.parse(latest.payload) : null;
+        const context = previousContext && latest && previousContext.forSequence === latest.sequence - 1
+          ? previousContext : null;
+        if (this.contextService && !context) {
+          const snapshot = await this.contextService.build(run, events, null);
+          await this.runs.append(id, token, 'context', snapshot);
+          continue;
+        }
+        const decision = await this.model.decide(run.requestText, events,
+          exposedTools(run.requestText), context);
         this.validateDecision(decision, run, events);
         await this.runs.append(id, token, 'workflow_decision', decision);
       }

@@ -2,6 +2,9 @@ import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
 
 export type ConversationRole = 'user' | 'assistant' | 'tool' | 'system';
+export interface ConversationMessage {
+  id: string; sequence: number; role: ConversationRole; content: string; createdAt: Date;
+}
 
 function required(value: string, label: string, max: number): string {
   const clean = value.trim();
@@ -11,6 +14,13 @@ function required(value: string, label: string, max: number): string {
 
 export class ConversationRepository {
   constructor(private readonly pool: pg.Pool) {}
+
+  async get(tenantId: string, userId: string, conversationId: string): Promise<{ projectId: string | null } | null> {
+    const result = await this.pool.query(`SELECT project_id FROM conversations
+      WHERE id = $1 AND tenant_id = $2 AND user_id = $3`,
+    [conversationId, required(tenantId, 'Tenant', 128), required(userId, 'User', 128)]);
+    return result.rows[0] ? { projectId: result.rows[0].project_id as string | null } : null;
+  }
 
   async create(tenantId: string, userId: string, projectId?: string): Promise<string> {
     const id = randomUUID();
@@ -46,13 +56,30 @@ export class ConversationRepository {
     } finally { client.release(); }
   }
 
-  async messages(tenantId: string, userId: string, conversationId: string): Promise<unknown[]> {
+  async messages(tenantId: string, userId: string, conversationId: string): Promise<ConversationMessage[]> {
     const owner = await this.pool.query(`SELECT 1 FROM conversations
       WHERE id = $1 AND tenant_id = $2 AND user_id = $3`,
     [conversationId, required(tenantId, 'Tenant', 128), required(userId, 'User', 128)]);
     if (!owner.rowCount) throw new Error('Conversation not found for this tenant and user');
     const result = await this.pool.query(`SELECT id, sequence, role, content, created_at
       FROM conversation_messages WHERE conversation_id = $1 ORDER BY sequence`, [conversationId]);
-    return result.rows;
+    return result.rows.map(row => ({ id: String(row.id), sequence: Number(row.sequence),
+      role: row.role as ConversationRole, content: String(row.content), createdAt: row.created_at as Date }));
+  }
+
+  async recentMessages(tenantId: string, userId: string, conversationId: string,
+    limit = 20): Promise<ConversationMessage[]> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new Error('Invalid recent message limit');
+    const result = await this.pool.query(`SELECT m.id, m.sequence, m.role, m.content, m.created_at
+      FROM conversation_messages m JOIN conversations c ON c.id = m.conversation_id
+      WHERE c.id = $1 AND c.tenant_id = $2 AND c.user_id = $3
+      ORDER BY m.sequence DESC LIMIT $4`,
+    [conversationId, required(tenantId, 'Tenant', 128), required(userId, 'User', 128), limit]);
+    if (!result.rowCount) {
+      const owner = await this.get(tenantId, userId, conversationId);
+      if (!owner) throw new Error('Conversation not found for this tenant and user');
+    }
+    return result.rows.reverse().map(row => ({ id: String(row.id), sequence: Number(row.sequence),
+      role: row.role as ConversationRole, content: String(row.content), createdAt: row.created_at as Date }));
   }
 }

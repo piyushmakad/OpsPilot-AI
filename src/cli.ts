@@ -12,6 +12,11 @@ import { createWorkflowRuntime } from './workflow-runtime.js';
 import { serve } from './api.js';
 import { MemoryRepository, type MemoryScope, type MemoryType } from './memory-repository.js';
 import { ConversationRepository, type ConversationRole } from './conversation-repository.js';
+import { MemorySearch } from './memory-search.js';
+import { ContextPreview } from './context-preview.js';
+import { ContextService } from './context-service.js';
+import { HostedMemoryExtractor, MemoryWritePipeline } from './memory-extraction.js';
+import { ConversationSummaries, HostedSummarizer } from './conversation-summary.js';
 
 const [command, ...args] = process.argv.slice(2);
 const repository = RunRepository.fromEnvironment();
@@ -73,6 +78,21 @@ try {
       console.log(JSON.stringify({ run: await repository.get(rest[0]), events: await repository.events(rest[0]) }, null, 2));
     } else throw new Error('Usage: workflow start <scenario> [--demo] [goal] | resume <id> [--demo] | tick [--demo] | approvals | approve <id> | reject <id> | show <id>');
   } else if (command === 'memory') {
+    if (args[0] === 'index' && args[1] && args.length === 2) {
+      console.log(JSON.stringify({ embeddedMemories: await new MemorySearch(repository.pool,
+        new BgeSmallEmbeddings()).indexPending(args[1]) }, null, 2));
+    } else if (args[0] === 'search') {
+      const [, tenant, user, project, conversation, ...words] = args;
+      const semantic = words.includes('--semantic');
+      const query = words.filter(word => word !== '--semantic').join(' ');
+      if (!tenant || !user || !project || !conversation || !query)
+        throw new Error('Usage: memory search <tenant> <user> <project|-> <conversation|-> [--semantic] <query>');
+      console.log(JSON.stringify(await new MemorySearch(repository.pool,
+        semantic ? new BgeSmallEmbeddings() : undefined).search({ tenantId: tenant,
+        userId: user, projectId: project === '-' ? undefined : project,
+        conversationId: conversation === '-' ? undefined : conversation,
+        query }), null, 2));
+    } else {
     const [action, tenant, user, scopeType, rawScopeId, ...rest] = args;
     const memory = new MemoryRepository(repository.pool);
     if (!tenant || !user || !scopeType || !rawScopeId) throw new Error('Usage: memory put|list|history <tenant> <user> <global|project|conversation> <scope-id|- for global> ...');
@@ -88,12 +108,49 @@ try {
     } else if (action === 'history' && rest.length === 1 && rest[0]) {
       console.log(JSON.stringify(await memory.history(tenant, user, scopeType as MemoryScope, scopeId, rest[0]), null, 2));
     } else throw new Error('Usage: memory put|list|history <tenant> <user> <scope> <scope-id> ...');
+    }
+  } else if (command === 'context') {
+    if (args[0] === 'inspect' && args[1] && args.length === 2) {
+      const run = await repository.get(args[1]);
+      if (!run) throw new Error('Run not found');
+      const events = await repository.events(run.id);
+      console.log(JSON.stringify({ run, contexts: events.filter(event => event.kind === 'context'),
+        retrieval: events.filter(event => event.kind === 'retrieval'),
+        toolResults: events.filter(event => event.kind === 'tool_result'),
+        decisions: events.filter(event => event.kind === 'decision') }, null, 2));
+    } else {
+    const [action, tenant, user, project, conversation, budgetText, ...words] = args;
+    const budget = Number(budgetText);
+    if (action !== 'preview' || !tenant || !user || !project || !conversation || !budgetText || !words.length)
+      throw new Error('Usage: context preview <tenant> <user> <project|-> <conversation|-> <budget> <query>');
+    const preview = new ContextPreview(new MemorySearch(repository.pool),
+      new ConversationRepository(repository.pool));
+    console.log(JSON.stringify(await preview.build({ tenantId: tenant, userId: user,
+      projectId: project === '-' ? undefined : project,
+      conversationId: conversation === '-' ? undefined : conversation,
+      budget, query: words.join(' ') }), null, 2));
+    }
   } else if (command === 'conversation') {
     const [action, tenant, user, ...rest] = args;
     if (!tenant || !user) throw new Error('Usage: conversation create|add|show <tenant> <user> ...');
     const conversations = new ConversationRepository(repository.pool);
     if (action === 'create' && rest.length <= 1) {
       console.log(JSON.stringify({ conversationId: await conversations.create(tenant, user, rest[0]) }, null, 2));
+    } else if (action === 'learn' && rest.length >= 2 && rest[0]) {
+      const [conversationId, ...words] = rest;
+      const project = words[0]?.startsWith('--project=') ? words.shift()!.slice('--project='.length) : undefined;
+      if (!words.length) throw new Error('Usage: conversation learn <tenant> <user> <id> [--project=ID] <message>');
+      const pipeline = new MemoryWritePipeline(conversations, new MemoryRepository(repository.pool),
+        new HostedMemoryExtractor());
+      console.log(JSON.stringify(await pipeline.learn({ tenantId: tenant, userId: user,
+        conversationId, projectId: project, message: words.join(' ') }), null, 2));
+    } else if (action === 'compact' && rest[0]) {
+      const threshold = rest[1] ? Number(rest[1]) : 600;
+      console.log(JSON.stringify(await new ConversationSummaries(repository.pool).compact(tenant, user,
+        rest[0], new HostedSummarizer(), threshold), null, 2));
+    } else if (action === 'summary' && rest[0]) {
+      console.log(JSON.stringify(await new ConversationSummaries(repository.pool).latest(tenant, user,
+        rest[0]), null, 2));
     } else if (action === 'add' && rest.length >= 3 && rest[0] && rest[1]) {
       console.log(JSON.stringify(await conversations.append(tenant, user, rest[0],
         rest[1] as ConversationRole, rest.slice(2).join(' ')), null, 2));
@@ -141,8 +198,26 @@ try {
         : { status: 'insufficient_evidence', candidates: [] }, null, 2));
     } finally { await search.close(); }
   } else if (command === 'start') {
-    const { demo, rag, tenantId, request } = parseStartArgs(args);
-    const run = await repository.create(request, tenantId, rag);
+    const { demo, rag, tenantId, userId, projectId, conversationId, request } = parseStartArgs(args);
+    let requestMessageId: string | undefined;
+    if (userId && conversationId) {
+      const conversations = new ConversationRepository(repository.pool);
+      if (demo) {
+        const owner = await conversations.get(tenantId, userId, conversationId);
+        if (!owner || owner.projectId !== (projectId ?? null))
+          throw new Error('Conversation not found in the requested project for this tenant and user');
+        requestMessageId = (await conversations.append(tenantId, userId,
+          conversationId, 'user', request)).id;
+      } else {
+        requestMessageId = (await new MemoryWritePipeline(conversations,
+          new MemoryRepository(repository.pool), new HostedMemoryExtractor())
+          .learn({ tenantId, userId, conversationId, projectId, message: request })).messageId;
+        await new ConversationSummaries(repository.pool).compact(tenantId, userId,
+          conversationId, new HostedSummarizer());
+      }
+    }
+    const run = await repository.create(request, tenantId, rag,
+      userId ? { userId, projectId, conversationId, requestMessageId } : undefined);
     console.log(`Created run ${run.id}`);
     await executeRun(run.id, demo ? new DemoModel() : new HostedModel());
     console.log(JSON.stringify(await repository.get(run.id), null, 2));
@@ -153,7 +228,7 @@ try {
   } else if (command === 'show' && args[0]) {
     console.log(JSON.stringify({ run: await repository.get(args[0]), events: await repository.events(args[0]) }, null, 2));
   } else {
-    throw new Error('Usage: migrate | memory ... | conversation ... | seed-day3 | reset-day3 | serve | workflow ... | ingest <tenant> <key> <version> <path> [--deprecated] | index <tenant> | search <tenant> <query> | start [--rag] [--tenant ID] [--demo] "request" | resume <run-id> [--demo] | show <run-id>');
+    throw new Error('Usage: migrate | memory ... | context preview ... | conversation ... | seed-day3 | reset-day3 | serve | workflow ... | ingest <tenant> <key> <version> <path> [--deprecated] | index <tenant> | search <tenant> <query> | start [--rag] [--tenant ID] [--user ID] [--project ID] [--conversation UUID] [--demo] "request" | resume <run-id> [--demo] | show <run-id>');
   }
 } catch (error) {
   console.error(error);
@@ -167,14 +242,18 @@ async function executeRun(runId: string, model: AgentModel): Promise<void> {
   if (!run) throw new Error('Run not found');
   const knowledge = run.ragEnabled ? KnowledgeSearch.fromEnvironment(new BgeSmallEmbeddings()) : undefined;
   try {
-    await new AgentEngine(repository, model, knowledge).execute(runId);
+    await new AgentEngine(repository, model, knowledge, new ContextService(repository.pool)).execute(runId);
   } finally { await knowledge?.close(); }
 }
 
-function parseStartArgs(values: string[]): { demo: boolean; rag: boolean; tenantId: string; request: string } {
+function parseStartArgs(values: string[]): { demo: boolean; rag: boolean; tenantId: string;
+  userId?: string; projectId?: string; conversationId?: string; request: string } {
   let demo = false;
   let rag = false;
   let tenantId = 'demo';
+  let userId: string | undefined;
+  let projectId: string | undefined;
+  let conversationId: string | undefined;
   const words: string[] = [];
   for (let index = 0; index < values.length; index++) {
     const value = values[index];
@@ -184,7 +263,14 @@ function parseStartArgs(values: string[]): { demo: boolean; rag: boolean; tenant
       const next = values[++index];
       if (!next || next.startsWith('--')) throw new Error('--tenant requires an ID');
       tenantId = next;
+    } else if (value === '--user' || value === '--project' || value === '--conversation') {
+      const next = values[++index];
+      if (!next || next.startsWith('--')) throw new Error(`${value} requires an ID`);
+      if (value === '--user') userId = next;
+      if (value === '--project') projectId = next;
+      if (value === '--conversation') conversationId = next;
     } else if (value) words.push(value);
   }
-  return { demo, rag, tenantId, request: words.join(' ') };
+  if ((projectId || conversationId) && !userId) throw new Error('--project and --conversation require --user');
+  return { demo, rag, tenantId, userId, projectId, conversationId, request: words.join(' ') };
 }

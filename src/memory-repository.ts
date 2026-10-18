@@ -14,7 +14,7 @@ export interface MemoryInput {
 
 export interface MemoryRecord extends MemoryInput {
   id: string; version: number; status: 'active' | 'superseded' | 'archived';
-  supersedesId: string | null; createdAt: Date;
+  supersedesId: string | null; createdAt: Date; updatedAt: Date;
 }
 
 const types = new Set<MemoryType>(['semantic', 'episodic', 'procedural', 'project_decision', 'user_preference']);
@@ -56,6 +56,7 @@ function map(row: Record<string, unknown>): MemoryRecord {
     expiresAt: row.expires_at as Date | undefined, version: Number(row.version),
     status: row.status as MemoryRecord['status'], supersedesId: row.supersedes_id ? String(row.supersedes_id) : null,
     createdAt: row.created_at as Date,
+    updatedAt: row.updated_at as Date,
   };
 }
 

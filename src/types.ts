@@ -19,7 +19,7 @@ export type RunStatus = 'pending' | 'running' | 'waiting_approval' | 'waiting_in
 export type RunEvent = {
   runId: string;
   sequence: number;
-  kind: 'decision' | 'tool_result' | 'retrieval' | 'workflow_decision' | 'workflow_result';
+  kind: 'decision' | 'tool_result' | 'retrieval' | 'workflow_decision' | 'workflow_result' | 'context';
   payload: unknown;
   createdAt: Date;
 };
@@ -35,6 +35,9 @@ export type AgentRun = {
   leaseExpiresAt: Date | null;
   workflowVersion: number;
   actorId: string | null;
+  projectId?: string | null;
+  conversationId?: string | null;
+  requestMessageId?: string | null;
   scenario: string | null;
   nextActionAt: Date | null;
   createdAt: Date;
