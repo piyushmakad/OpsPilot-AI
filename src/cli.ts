@@ -10,6 +10,8 @@ import { basename } from 'node:path';
 import { WorkflowStore, SCENARIOS, type Scenario, DEMO_TENANT } from './workflow-store.js';
 import { createWorkflowRuntime } from './workflow-runtime.js';
 import { serve } from './api.js';
+import { MemoryRepository, type MemoryScope, type MemoryType } from './memory-repository.js';
+import { ConversationRepository, type ConversationRole } from './conversation-repository.js';
 
 const [command, ...args] = process.argv.slice(2);
 const repository = RunRepository.fromEnvironment();
@@ -70,6 +72,34 @@ try {
     } else if (action === 'show' && rest[0]) {
       console.log(JSON.stringify({ run: await repository.get(rest[0]), events: await repository.events(rest[0]) }, null, 2));
     } else throw new Error('Usage: workflow start <scenario> [--demo] [goal] | resume <id> [--demo] | tick [--demo] | approvals | approve <id> | reject <id> | show <id>');
+  } else if (command === 'memory') {
+    const [action, tenant, user, scopeType, rawScopeId, ...rest] = args;
+    const memory = new MemoryRepository(repository.pool);
+    if (!tenant || !user || !scopeType || !rawScopeId) throw new Error('Usage: memory put|list|history <tenant> <user> <global|project|conversation> <scope-id|- for global> ...');
+    const scopeId = rawScopeId === '-' ? '' : rawScopeId;
+    if (action === 'put') {
+      const [type, key, ...words] = rest;
+      if (!type || !key || !words.length) throw new Error('Usage: memory put <tenant> <user> <scope> <scope-id> <type> <key> <value>');
+      console.log(JSON.stringify(await memory.put({ tenantId: tenant, userId: user,
+        scopeType: scopeType as MemoryScope, scopeId, type: type as MemoryType,
+        key, value: words.join(' ') }), null, 2));
+    } else if (action === 'list' && rest.length === 0) {
+      console.log(JSON.stringify(await memory.list(tenant, user, scopeType as MemoryScope, scopeId), null, 2));
+    } else if (action === 'history' && rest.length === 1 && rest[0]) {
+      console.log(JSON.stringify(await memory.history(tenant, user, scopeType as MemoryScope, scopeId, rest[0]), null, 2));
+    } else throw new Error('Usage: memory put|list|history <tenant> <user> <scope> <scope-id> ...');
+  } else if (command === 'conversation') {
+    const [action, tenant, user, ...rest] = args;
+    if (!tenant || !user) throw new Error('Usage: conversation create|add|show <tenant> <user> ...');
+    const conversations = new ConversationRepository(repository.pool);
+    if (action === 'create' && rest.length <= 1) {
+      console.log(JSON.stringify({ conversationId: await conversations.create(tenant, user, rest[0]) }, null, 2));
+    } else if (action === 'add' && rest.length >= 3 && rest[0] && rest[1]) {
+      console.log(JSON.stringify(await conversations.append(tenant, user, rest[0],
+        rest[1] as ConversationRole, rest.slice(2).join(' ')), null, 2));
+    } else if (action === 'show' && rest.length === 1 && rest[0]) {
+      console.log(JSON.stringify(await conversations.messages(tenant, user, rest[0]), null, 2));
+    } else throw new Error('Usage: conversation create <tenant> <user> [project] | add <tenant> <user> <id> <role> <message> | show <tenant> <user> <id>');
   } else if (command === 'ingest') {
     const [tenantId, documentKey, versionText, path, ...flags] = args;
     const version = Number(versionText);
@@ -123,7 +153,7 @@ try {
   } else if (command === 'show' && args[0]) {
     console.log(JSON.stringify({ run: await repository.get(args[0]), events: await repository.events(args[0]) }, null, 2));
   } else {
-    throw new Error('Usage: migrate | seed-day3 | reset-day3 | serve | workflow ... | ingest <tenant> <key> <version> <path> [--deprecated] | index <tenant> | search <tenant> <query> | start [--rag] [--tenant ID] [--demo] "request" | resume <run-id> [--demo] | show <run-id>');
+    throw new Error('Usage: migrate | memory ... | conversation ... | seed-day3 | reset-day3 | serve | workflow ... | ingest <tenant> <key> <version> <path> [--deprecated] | index <tenant> | search <tenant> <query> | start [--rag] [--tenant ID] [--demo] "request" | resume <run-id> [--demo] | show <run-id>');
   }
 } catch (error) {
   console.error(error);

@@ -156,3 +156,26 @@ npm run dev -- start 'What is the refund policy?'
 The default Groq model is `openai/gpt-oss-120b`. Override it with `GROQ_MODEL` if needed. To use OpenAI instead, set `MODEL_PROVIDER=openai`, `OPENAI_API_KEY`, and `OPENAI_MODEL`. The hosted adapter uses structured model output for decisions and citation IDs. Native provider tool calling, live support data, approval, retries, recovery scheduling, and the UI are later increments.
 
 If the process stops during a run, wait two minutes for the claim to expire and run `npm run dev -- resume RUN_ID --demo` (or omit `--demo` for the live adapter). The event log lets the worker avoid repeating a persisted tool step. The current demo tool is read-only; external write tools require stronger guarantees.
+
+## Day 4, slice 1: durable conversation and memory records
+
+Run `npm run dev -- migrate` with your existing `DATABASE_URL`. This adds immutable raw conversation messages and versioned structured memory. A memory is addressed by tenant, user, exact scope, and fact key. Writing the same value again returns `deduplicated`; changing the value supersedes the previous row in one transaction. Different keys coexist. `history` keeps the old value for audit, while `list` returns only active, unexpired values. This slice uses explicit local CLI writes so you can inspect persistence before adding automated extraction or model context.
+
+```powershell
+npm run dev -- memory put demo piyush project opspilot project_decision database PostgreSQL
+npm run dev -- memory put demo piyush project opspilot project_decision database PostgreSQL
+npm run dev -- memory put demo piyush project opspilot project_decision database MongoDB
+npm run dev -- memory list demo piyush project opspilot
+npm run dev -- memory history demo piyush project opspilot database
+```
+
+For a global user preference, use `global -` in place of `project opspilot`. To inspect raw history, create a conversation, copy its returned UUID, and append messages:
+
+```powershell
+npm run dev -- conversation create demo piyush opspilot
+npm run dev -- conversation add demo piyush CONVERSATION_ID user 'We chose PostgreSQL'
+npm run dev -- conversation add demo piyush CONVERSATION_ID assistant 'Understood'
+npm run dev -- conversation show demo piyush CONVERSATION_ID
+```
+
+The CLI is a trusted local developer interface. It does not authenticate end users; do not expose it as an HTTP memory-write endpoint. No stored memory is inserted into LLM prompts yet, and these commands do not call Groq. Run `npm test` for local checks and `npm run test:db` for PostgreSQL behavior after migration.

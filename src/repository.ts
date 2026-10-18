@@ -21,7 +21,7 @@ export class RunRepository {
     await this.pool.query(`CREATE TABLE IF NOT EXISTS schema_migrations
       (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`);
     for (const name of ['001_agent_runs.sql', '002_knowledge.sql', '003_embeddings.sql',
-      '004_grounded_runs.sql', '005_workflows.sql']) {
+      '004_grounded_runs.sql', '005_workflows.sql', '006_memory_foundation.sql']) {
       const client = await this.pool.connect();
       try {
         await client.query('BEGIN');

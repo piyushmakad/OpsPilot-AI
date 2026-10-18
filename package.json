@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "tsx src/cli.ts",
     "typecheck": "tsc --noEmit && tsc -p web/tsconfig.json --noEmit",
-    "test": "node --import tsx --test src/knowledge-chunk.test.ts src/retrieval.test.ts src/engine.test.ts src/workflow.test.ts",
-    "test:db": "node --import tsx --test src/retrieval.db.test.ts src/workflow.db.test.ts",
+    "test": "node --import tsx --test src/knowledge-chunk.test.ts src/retrieval.test.ts src/engine.test.ts src/workflow.test.ts src/memory.test.ts",
+    "test:db": "node --import tsx --test src/retrieval.db.test.ts src/workflow.db.test.ts src/memory.db.test.ts",
     "build": "tsc && vite build",
     "ui:dev": "vite",
     "start": "node dist/cli.js"
