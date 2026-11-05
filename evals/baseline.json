@@ -1,0 +1,49 @@
+{
+  "embeddingModel": "Xenova/bge-small-en-v1.5",
+  "topK": 5,
+  "hybrid": {
+    "n": 23,
+    "hitAt1": 0.782608695652174,
+    "hitAtK": 1,
+    "recallAtK": 1,
+    "mrr": 0.8840579710144929,
+    "falseAbstentionRate": 0,
+    "noAnswerCases": 5,
+    "correctAbstentionRate": 1,
+    "leaks": 0,
+    "byCategory": {
+      "keyword": {
+        "n": 8,
+        "hitAt1": 0.875,
+        "hitAtK": 1,
+        "recallAtK": 1,
+        "mrr": 0.9375
+      },
+      "paraphrase": {
+        "n": 8,
+        "hitAt1": 0.75,
+        "hitAtK": 1,
+        "recallAtK": 1,
+        "mrr": 0.8541666666666666
+      },
+      "identifier": {
+        "n": 5,
+        "hitAt1": 1,
+        "hitAtK": 1,
+        "recallAtK": 1,
+        "mrr": 1
+      },
+      "multi_section": {
+        "n": 2,
+        "hitAt1": 0,
+        "hitAtK": 1,
+        "recallAtK": 1,
+        "mrr": 0.5
+      }
+    },
+    "latencyMs": {
+      "p50": 10.186400000000049,
+      "p95": 38.050500000000284
+    }
+  }
+}

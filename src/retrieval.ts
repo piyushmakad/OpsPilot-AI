@@ -23,6 +23,8 @@ export type SearchOptions = {
   topK?: number;
   minSemanticSimilarity?: number;
   minLexicalRank?: number;
+  // Evaluation can isolate one branch to measure what each contributes to the hybrid result.
+  branches?: 'hybrid' | 'semantic' | 'lexical';
 };
 
 export function fuseCandidates(
@@ -109,17 +111,19 @@ export class KnowledgeSearch {
     if (!Number.isInteger(candidateCount) || candidateCount < 1 || candidateCount > 100) {
       throw new Error('candidateCount must be between 1 and 100');
     }
-    const vector = vectorLiteral(await this.embeddings.embedQuery(query));
+    const branches = options.branches ?? 'hybrid';
+    const vector = branches === 'lexical' ? null : vectorLiteral(await this.embeddings.embedQuery(query));
     const columns = `c.id AS chunk_id, d.id AS document_id, d.document_key, d.version,
       d.title, c.section, d.source, c.content`;
+    const skipped = Promise.resolve({ rows: [] as Record<string, unknown>[] });
     const [semantic, lexical] = await Promise.all([
-      this.pool.query(`SELECT ${columns}, 1 - (c.embedding <=> $3::vector) AS score
+      vector === null ? skipped : this.pool.query(`SELECT ${columns}, 1 - (c.embedding <=> $3::vector) AS score
         FROM knowledge_chunks c JOIN knowledge_documents d ON d.id = c.document_id
         WHERE d.tenant_id = $1 AND d.status = 'ACTIVE' AND c.embedding_model = $4
           AND c.embedding IS NOT NULL
         ORDER BY c.embedding <=> $3::vector LIMIT $2`,
         [tenantId, candidateCount, vector, this.embeddings.modelId]),
-      this.pool.query(`SELECT ${columns}, CASE
+      branches === 'semantic' ? skipped : this.pool.query(`SELECT ${columns}, CASE
           WHEN lower(d.document_key) = lower($3) OR lower(d.title) = lower($3) THEN 10
           ELSE ts_rank_cd(c.search_vector, websearch_to_tsquery('english', $3))
         END AS score

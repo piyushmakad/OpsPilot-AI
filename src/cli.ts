@@ -17,6 +17,7 @@ import { ContextPreview } from './context-preview.js';
 import { ContextService } from './context-service.js';
 import { HostedMemoryExtractor, MemoryWritePipeline } from './memory-extraction.js';
 import { ConversationSummaries, HostedSummarizer } from './conversation-summary.js';
+import { evalAnswers, evalRetrieval } from './eval.js';
 
 const [command, ...args] = process.argv.slice(2);
 const repository = RunRepository.fromEnvironment();
@@ -157,6 +158,17 @@ try {
     } else if (action === 'show' && rest.length === 1 && rest[0]) {
       console.log(JSON.stringify(await conversations.messages(tenant, user, rest[0]), null, 2));
     } else throw new Error('Usage: conversation create <tenant> <user> [project] | add <tenant> <user> <id> <role> <message> | show <tenant> <user> <id>');
+  } else if (command === 'eval') {
+    const [suite, ...flags] = args;
+    const allowed = suite === 'retrieval' ? ['--sweep', '--check', '--save-baseline']
+      : suite === 'answers' ? ['--judge'] : [];
+    if (!allowed.length || flags.some(flag => !allowed.includes(flag)))
+      throw new Error('Usage: eval retrieval [--sweep] [--check] [--save-baseline] | eval answers [--judge]');
+    const passed = suite === 'retrieval'
+      ? await evalRetrieval(repository, new BgeSmallEmbeddings(), { sweep: flags.includes('--sweep'),
+        check: flags.includes('--check'), saveBaseline: flags.includes('--save-baseline') })
+      : await evalAnswers(repository, new BgeSmallEmbeddings(), { judge: flags.includes('--judge') });
+    if (!passed) process.exitCode = 1;
   } else if (command === 'ingest') {
     const [tenantId, documentKey, versionText, path, ...flags] = args;
     const version = Number(versionText);
@@ -228,7 +240,7 @@ try {
   } else if (command === 'show' && args[0]) {
     console.log(JSON.stringify({ run: await repository.get(args[0]), events: await repository.events(args[0]) }, null, 2));
   } else {
-    throw new Error('Usage: migrate | memory ... | context preview ... | conversation ... | seed-day3 | reset-day3 | serve | workflow ... | ingest <tenant> <key> <version> <path> [--deprecated] | index <tenant> | search <tenant> <query> | start [--rag] [--tenant ID] [--user ID] [--project ID] [--conversation UUID] [--demo] "request" | resume <run-id> [--demo] | show <run-id>');
+    throw new Error('Usage: migrate | eval retrieval|answers ... | memory ... | context preview ... | conversation ... | seed-day3 | reset-day3 | serve | workflow ... | ingest <tenant> <key> <version> <path> [--deprecated] | index <tenant> | search <tenant> <query> | start [--rag] [--tenant ID] [--user ID] [--project ID] [--conversation UUID] [--demo] "request" | resume <run-id> [--demo] | show <run-id>');
   }
 } catch (error) {
   console.error(error);

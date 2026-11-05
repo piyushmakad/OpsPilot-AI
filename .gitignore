@@ -3,3 +3,4 @@ dist/
 web-dist/
 .env
 .npm-cache/
+evals/results/

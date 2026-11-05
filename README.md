@@ -1,6 +1,6 @@
 # OpsPilot AI
 
-One evolving full stack AI engineering project. Day 1 provides a bounded agent execution loop and PostgreSQL-backed `AgentRun` state. Day 2 adds tenant-aware Markdown ingestion, hybrid retrieval, and grounded agent runs with citations. Day 3 adds a durable multi-step refund agent, local MCP-style capabilities, approvals, retries, reconciliation, and a React run inspector.
+One evolving full stack AI engineering project. Day 1 provides a bounded agent execution loop and PostgreSQL-backed `AgentRun` state. Day 2 adds tenant-aware Markdown ingestion, hybrid retrieval, and grounded agent runs with citations. Day 3 adds a durable multi-step refund agent, local MCP-style capabilities, approvals, retries, reconciliation, and a React run inspector. Day 4 adds durable memory, conversation summaries, and context engineering. Day 5 adds an evaluation harness that measures retrieval and grounded answers against a labeled set.
 
 ## Day 3: run the local refund agent
 
@@ -240,3 +240,15 @@ npm run dev -- conversation show demo piyush CONVERSATION_ID
 The live context builder places the current request and run state first, then selected RAG policy, live tool observations, summary, recent raw messages, and relevant active memory. Structured live facts suppress older memory with the same key. Retrieved policy suppresses competing procedural memory. These are deterministic selection rules; model instructions also mark retrieved and historical content as untrusted. The Day 3 refund workflow still applies its existing validation and approval checks before any action. Enable semantic memory retrieval during live runs with `$env:MEMORY_SEMANTIC = '1'` after `memory index`; leave it unset to use faster keyword retrieval. The default similarity cutoff and ranking weights are starting values that need labeled evaluation in Day 5.
 
 New runs link their exact incoming conversation message to the run. The context builder excludes that one message from recent history because the request is already present as a required item. Earlier repeated questions remain available as history. Run `npm run dev -- migrate` after updating the code to add this link; existing run snapshots remain immutable.
+
+## Day 5: evaluation harness
+
+[docs/day5-evaluation.md](docs/day5-evaluation.md) explains why each metric exists and what the first run found. The harness loads a synthetic labeled corpus from [evals/](evals/) into temporary tenants, measures it, and deletes those tenants afterwards. Your own documents and runs are not touched.
+
+```powershell
+npm run eval            # retrieval quality: hybrid vs semantic vs lexical, by query category
+npm run eval:check      # exit 1 if hybrid retrieval falls below evals/baseline.json or anything leaks
+npm run eval:answers    # full grounded agent plus an LLM faithfulness judge (calls Groq)
+```
+
+`eval retrieval` is local and free: it uses the BGE model and PostgreSQL only. Add `--sweep` to compare semantic thresholds, or `--save-baseline` to accept the current numbers. `eval answers` sends the synthetic corpus excerpts and the eval questions to Groq, twice per answered case with `--judge`. Rate-limited calls are retried, not scored as wrong. Per-query JSON results are written to `evals/results/` (gitignored).
