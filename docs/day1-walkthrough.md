@@ -4,10 +4,10 @@ The Day 1 goal is to turn a customer request into a durable run that can survive
 
 ## Follow one request through the code
 
-1. `src/cli.ts` creates an `AgentRun` and invokes the engine. The CLI is temporary; a later API will call the same engine.
-2. `src/repository.ts` writes a `pending` row. It then claims the run with one conditional PostgreSQL `UPDATE`. The lease token identifies the worker allowed to write its next step.
-3. `src/engine.ts` reads the event history. If the last event is a tool decision, it executes the registered read-only tool. Otherwise it asks the model for one decision. It persists that decision *before* acting on it.
-4. `src/model.ts` contains a deterministic demo adapter and a hosted Responses adapter for Groq or OpenAI. Both return the same validated `Decision` type.
+1. `apps/server/src/cli.ts` creates an `AgentRun` and invokes the engine. The CLI is temporary; a later API will call the same engine.
+2. `apps/server/src/repository.ts` writes a `pending` row. It then claims the run with one conditional PostgreSQL `UPDATE`. The lease token identifies the worker allowed to write its next step.
+3. `apps/server/src/engine.ts` reads the event history. If the last event is a tool decision, it executes the registered read-only tool. Otherwise it asks the model for one decision. It persists that decision *before* acting on it.
+4. `apps/server/src/model.ts` contains a deterministic demo adapter and a hosted Responses adapter for Groq or OpenAI. Both return the same validated `Decision` type.
 5. The engine completes after a final decision or fails when the five-decision limit is reached.
 
 ## State versus history
@@ -22,6 +22,6 @@ If a worker crashes after a tool finishes but before its result is saved, the to
 
 ## What to inspect while learning
 
-Run the demo request from the README, then use `show RUN_ID`. Find the ordered `decision`, `tool_result`, and `decision` events. Trace the corresponding branches in `src/engine.ts`. Change the demo request to one that does not mention “policy,” “return,” or “refund” and observe the single final decision.
+Run the demo request from the README, then use `show RUN_ID`. Find the ordered `decision`, `tool_result`, and `decision` events. Trace the corresponding branches in `apps/server/src/engine.ts`. Change the demo request to one that does not mention “policy,” “return,” or “refund” and observe the single final decision.
 
 The live adapter uses structured output to produce the Day 1 decision. It does not yet use native provider tool calling. That integration belongs to the next increment, when the tool registry and authorization layer grow beyond the single safe demo tool.

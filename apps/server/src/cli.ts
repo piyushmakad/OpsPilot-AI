@@ -1,3 +1,4 @@
+import './env.js';
 import { AgentEngine } from './engine.js';
 import { DemoModel, HostedModel } from './model.js';
 import type { AgentModel } from './model.js';
@@ -6,7 +7,7 @@ import { KnowledgeRepository } from './knowledge-repository.js';
 import { BgeSmallEmbeddings } from './embedding.js';
 import { KnowledgeSearch } from './retrieval.js';
 import { readFile } from 'node:fs/promises';
-import { basename } from 'node:path';
+import { basename, resolve } from 'node:path';
 import { WorkflowStore, SCENARIOS, type Scenario, DEMO_TENANT } from './workflow-store.js';
 import { createWorkflowRuntime } from './workflow-runtime.js';
 import { serve } from './api.js';
@@ -176,7 +177,8 @@ try {
         flags.some(flag => flag !== '--deprecated')) {
       throw new Error('Usage: ingest <tenant> <document-key> <version> <markdown-path> [--deprecated]');
     }
-    const markdown = await readFile(path, 'utf8');
+    // npm workspace scripts run inside apps/server; resolve paths from where the user typed the command.
+    const markdown = await readFile(resolve(process.env.INIT_CWD ?? process.cwd(), path), 'utf8');
     const title = /^#\s+(.+)$/m.exec(markdown)?.[1]?.trim() || basename(path);
     const knowledge = KnowledgeRepository.fromEnvironment();
     try {

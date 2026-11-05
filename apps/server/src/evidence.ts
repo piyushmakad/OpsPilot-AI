@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { SearchCandidate } from './retrieval.js';
-import type { Decision } from './types.js';
+import type { Decision } from '@opspilot/shared';
 
 const sourceSchema = z.object({
   id: z.string(), chunkId: z.string(), documentId: z.string(),

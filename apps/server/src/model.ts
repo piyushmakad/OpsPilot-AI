@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import { z } from 'zod';
-import type { RunEvent, Decision } from './types.js';
+import type { RunEvent, Decision } from '@opspilot/shared';
 import type { EvidenceSnapshot } from './evidence.js';
 import type { ContextSnapshot } from './context-builder.js';
 

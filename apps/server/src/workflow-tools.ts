@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { AgentRun } from './types.js';
+import type { AgentRun } from '@opspilot/shared';
 import type { KnowledgeSearch } from './retrieval.js';
 import { selectEvidence } from './evidence.js';
 import { WorkflowStore } from './workflow-store.js';

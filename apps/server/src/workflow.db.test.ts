@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { RunRepository } from './repository.js';
 import { WorkflowStore } from './workflow-store.js';
-import type { AgentRun } from './types.js';
+import type { AgentRun } from '@opspilot/shared';
 
 test('PostgreSQL enforces refund ownership, approval, stable retries, and reconciliation', async () => {
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required for test:db');

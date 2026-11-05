@@ -7,7 +7,7 @@ import type { KnowledgeSearch, SearchCandidate } from './retrieval.js';
 import { selectEvidence } from './evidence.js';
 import { buildContext } from './context-builder.js';
 import type { ContextService } from './context-service.js';
-import type { AgentRun, RunEvent } from './types.js';
+import type { AgentRun, RunEvent } from '@opspilot/shared';
 
 const now = new Date();
 const candidate: SearchCandidate = {

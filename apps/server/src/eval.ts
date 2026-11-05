@@ -13,7 +13,7 @@ import { HostedModel } from './model.js';
 import { ContextService } from './context-service.js';
 import { RunRepository } from './repository.js';
 import { KnowledgeSearch, type SearchOptions } from './retrieval.js';
-import { decisionSchema } from './types.js';
+import { decisionSchema } from '@opspilot/shared';
 
 const EVAL_DIR = fileURLToPath(new URL('../evals/', import.meta.url));
 const TOP_K = 5;
