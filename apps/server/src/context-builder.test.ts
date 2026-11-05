@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildContext } from './context-builder.js';
-import type { AgentRun, RunEvent } from './types.js';
+import type { AgentRun, RunEvent } from '@opspilot/shared';
 import type { MemoryHit } from './memory-search.js';
 import type { EvidenceSnapshot } from './evidence.js';
 

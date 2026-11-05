@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import type { RunStatus } from '@opspilot/shared';
 import './style.css';
 
 type Role = 'customer' | 'manager';
 type Auth = { role: Role; password: string };
 type Run = { id: string; requestText?: string; request_text?: string; scenario: string;
-  status: string; outputText?: string | null; output_text?: string | null; createdAt?: string; created_at?: string };
+  status: RunStatus; outputText?: string | null; output_text?: string | null; createdAt?: string; created_at?: string };
 type Event = { sequence: number; kind: string; payload: Record<string, any>; createdAt: string };
 type Detail = { run: Run; events: Event[]; operation: Record<string, any> | null;
   approval: Record<string, any> | null; notification: Record<string, any> | null };

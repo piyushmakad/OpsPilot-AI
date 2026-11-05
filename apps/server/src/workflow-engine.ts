@@ -1,4 +1,4 @@
-import type { AgentRun, RunEvent } from './types.js';
+import type { AgentRun, RunEvent } from '@opspilot/shared';
 import { createHash } from 'node:crypto';
 import { RunRepository } from './repository.js';
 import { WorkflowStore } from './workflow-store.js';
@@ -11,7 +11,9 @@ import type { ContextService } from './context-service.js';
 
 const MAX_DECISIONS = 20;
 const MAX_CALLS = 30;
-const MAX_ACTIVE_MS = 100000;
+// Wall-clock budget for one run. Free-tier model limits (~3 decisions/minute on Groq) make a
+// full refund flow take a few minutes, so the default is 5 minutes; override per environment.
+const MAX_ACTIVE_MS = Number(process.env.WORKFLOW_MAX_ACTIVE_MS ?? 300_000);
 const MAX_RETRIES = 3;
 
 type Outcome = 'completed' | 'paused' | 'unclaimed';
@@ -181,7 +183,8 @@ export class WorkflowEngine {
   }
 
   private async refund(run: AgentRun, token: string, call: ToolCall, events: RunEvent[]): Promise<
-    { kind: 'result'; result: { status: string; operationId?: string; idempotencyKey?: string } } |
+    { kind: 'result'; result: { status: string; operationId?: string; idempotencyKey?: string;
+      requiredFirst?: string[] } } |
     { kind: 'park' }> {
     const paymentId = String(call.args.paymentId);
     const amount = Number(call.args.amountCents);
@@ -193,6 +196,16 @@ export class WorkflowEngine {
       { status?: string } | undefined;
     const account = [...observations].reverse().find(o => o.name === 'getAccount')?.result as
       { actorId?: string; status?: string } | undefined;
+    // Missing evidence is recoverable: no side effect has happened yet, so tell the model what
+    // to fetch instead of failing the run. Contradicting evidence (wrong actor, wrong amount,
+    // payment not SUCCEEDED) is still a hard stop.
+    const missing = [
+      ...(details?.payment ? [] : ['getPaymentDetails']),
+      ...(account ? [] : ['getAccount']),
+      ...(policy ? [] : ['searchRefundPolicy']),
+    ];
+    if (missing.length) return { kind: 'result', result: { status: 'PRECONDITION_MISSING',
+      requiredFirst: missing } };
     if (details?.payment?.id !== paymentId || details.payment.amountCents !== amount ||
       details.payment.status !== 'SUCCEEDED' || policy?.status !== 'evidence_found' ||
       account?.actorId !== run.actorId || account.status !== 'ACTIVE') {

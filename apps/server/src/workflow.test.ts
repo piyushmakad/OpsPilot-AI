@@ -3,7 +3,7 @@ import test from 'node:test';
 import { WorkflowEngine } from './workflow-engine.js';
 import { DemoWorkflowModel } from './workflow-model.js';
 import { validateCall, type CapabilityClient, type ToolCall, type ToolObservation } from './workflow-tools.js';
-import type { AgentRun, RunEvent } from './types.js';
+import type { AgentRun, RunEvent } from '@opspilot/shared';
 import type { RunRepository } from './repository.js';
 import type { WorkflowStore, Operation } from './workflow-store.js';
 

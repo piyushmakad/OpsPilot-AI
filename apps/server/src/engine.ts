@@ -1,5 +1,5 @@
-import { decisionSchema } from './types.js';
-import type { Decision } from './types.js';
+import { decisionSchema } from '@opspilot/shared';
+import type { Decision } from '@opspilot/shared';
 import type { AgentModel } from './model.js';
 import { RunRepository } from './repository.js';
 import type { KnowledgeSearch } from './retrieval.js';

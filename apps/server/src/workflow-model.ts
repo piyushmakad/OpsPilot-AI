@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import { z } from 'zod';
-import type { RunEvent } from './types.js';
+import type { RunEvent } from '@opspilot/shared';
 import type { ContextSnapshot } from './context-builder.js';
 import { toolDefinitions, type ToolCall, type ToolName } from './workflow-tools.js';
 
@@ -24,6 +24,24 @@ const wire = z.object({
   text: z.string().nullable(),
 });
 
+// Free-tier providers return 429 when tokens-per-minute run out. A model decision has no side
+// effects (it is stored only after validation), so waiting and asking again is safe. The engine's
+// lease heartbeat keeps the run owned while we wait.
+async function withRateLimitRetry<T>(call: () => Promise<T>, attempts = 4): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try { return await call(); }
+    catch (error) {
+      const status = (error as { status?: number }).status;
+      const message = error instanceof Error ? error.message : String(error);
+      if (status !== 429 || attempt >= attempts) throw error;
+      const hinted = /try again in ([\d.]+)s/i.exec(message);
+      const waitMs = Math.min(30_000, hinted ? Math.ceil(Number(hinted[1]) * 1000) + 500 : 5_000 * attempt);
+      console.warn(`Model rate-limited; retrying in ${Math.round(waitMs / 1000)}s (attempt ${attempt + 1}/${attempts})`);
+      await new Promise(resolve => setTimeout(resolve, waitMs));
+    }
+  }
+}
+
 export class HostedWorkflowModel implements WorkflowModel {
   private readonly client: OpenAI;
   private readonly model: string;
@@ -41,11 +59,27 @@ export class HostedWorkflowModel implements WorkflowModel {
     } else throw new Error('MODEL_PROVIDER must be groq or openai');
   }
 
+  // Structured output can still break our invariants (e.g. call_tools with text set). Nothing has
+  // been executed yet, so re-ask a bounded number of times instead of failing the whole run.
   async decide(goal: string, events: RunEvent[], exposed: ToolName[],
+    context?: ContextSnapshot | null): Promise<WorkflowDecision> {
+    for (let attempt = 1; ; attempt++) {
+      try { return await this.decideOnce(goal, events, exposed, context); }
+      catch (error) {
+        // Groq reports structured-output failures as HTTP 400 code output_parse_failed.
+        const { status, code } = error as { status?: number; code?: string };
+        const malformed = status === undefined || code === 'output_parse_failed';
+        if (!malformed || attempt >= 3) throw error;
+        console.warn(`Malformed model decision (${error instanceof Error ? error.message : error}); asking again`);
+      }
+    }
+  }
+
+  private async decideOnce(goal: string, events: RunEvent[], exposed: ToolName[],
     context?: ContextSnapshot | null): Promise<WorkflowDecision> {
     const tools = exposed.map(name => ({ name, description: toolDefinitions[name].description,
       input: toolDefinitions[name].input.toJSONSchema(), risk: toolDefinitions[name].risk }));
-    const response = await this.client.responses.create({
+    const response = await withRateLimitRetry(() => this.client.responses.create({
       model: this.model, store: false,
       instructions: `You are OpsPilot AI. Choose one logical next step for the user's goal.
 You may create or revise a short plan, call exposed tools, ask for clarification, escalate, or finish.
@@ -77,7 +111,7 @@ Available tools: ${JSON.stringify(tools)}`,
             text: { type: ['string', 'null'] },
           },
         } } },
-    });
+    }));
     if (response.status !== 'completed' || !response.output_text) throw new Error('Model decision incomplete');
     const raw = wire.parse(JSON.parse(response.output_text));
     if (raw.kind === 'plan') {

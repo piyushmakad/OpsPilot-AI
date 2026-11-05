@@ -1,5 +1,5 @@
 import type pg from 'pg';
-import type { AgentRun, RunEvent } from './types.js';
+import type { AgentRun, RunEvent } from '@opspilot/shared';
 import type { EvidenceSnapshot } from './evidence.js';
 import { MemorySearch } from './memory-search.js';
 import { ConversationRepository } from './conversation-repository.js';

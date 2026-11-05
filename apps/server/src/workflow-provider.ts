@@ -1,4 +1,4 @@
-import type { AgentRun } from './types.js';
+import type { AgentRun } from '@opspilot/shared';
 import type { Operation, WorkflowStore } from './workflow-store.js';
 
 export type ProviderOutcome = 'SUCCESS' | '503' | 'UNKNOWN';

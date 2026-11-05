@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { AgentRun, RunEvent } from './types.js';
+import type { AgentRun, RunEvent } from '@opspilot/shared';
 import type { EvidenceSnapshot } from './evidence.js';
 import type { ConversationMessage } from './conversation-repository.js';
 import type { ConversationSummary } from './conversation-summary.js';

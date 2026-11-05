@@ -3,33 +3,23 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "tsx src/cli.ts",
-    "typecheck": "tsc --noEmit && tsc -p web/tsconfig.json --noEmit",
-    "test": "node --import tsx --test src/eval-metrics.test.ts src/knowledge-chunk.test.ts src/retrieval.test.ts src/engine.test.ts src/workflow.test.ts src/memory.test.ts src/context-preview.test.ts src/memory-extraction.test.ts src/context-builder.test.ts src/context-service.test.ts",
-    "test:db": "node --import tsx --test src/retrieval.db.test.ts src/workflow.db.test.ts src/memory.db.test.ts",
-    "eval": "tsx src/cli.ts eval retrieval",
-    "eval:check": "tsx src/cli.ts eval retrieval --check",
-    "eval:answers": "tsx src/cli.ts eval answers --judge",
-    "build": "tsc && vite build",
-    "ui:dev": "vite",
-    "start": "node dist/cli.js"
-  },
-  "dependencies": {
-    "@huggingface/transformers": "^4.3.1",
-    "openai": "^6.49.0",
-    "pg": "^8.23.1",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0",
-    "zod": "^4.6.5"
+    "dev": "npm run -w @opspilot/server dev --",
+    "ui:dev": "npm run -w @opspilot/web dev",
+    "test": "npm run -w @opspilot/server test",
+    "test:db": "npm run -w @opspilot/server test:db",
+    "eval": "npm run -w @opspilot/server eval --",
+    "eval:check": "npm run -w @opspilot/server eval:check",
+    "eval:answers": "npm run -w @opspilot/server eval:answers",
+    "typecheck": "npm run typecheck --workspaces",
+    "build": "npm run typecheck && npm run -w @opspilot/web build",
+    "start": "npm run -w @opspilot/server start --"
   },
   "devDependencies": {
-    "@types/node": "^26.6.5",
-    "@types/pg": "^8.23.1",
-    "@types/react": "^19.3.0",
-    "@types/react-dom": "^19.3.0",
-    "tsx": "^4.23.15",
-    "typescript": "^7.0.2",
-    "vite": "^8.3.4"
+    "typescript": "^7.0.2"
   }
 }

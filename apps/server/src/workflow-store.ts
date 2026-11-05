@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { AgentRun } from './types.js';
+import type { AgentRun } from '@opspilot/shared';
 import { RunRepository } from './repository.js';
 
 export const DEMO_TENANT = 'demo-refunds';

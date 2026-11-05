@@ -13,7 +13,7 @@ Measuring only the final answer hides which layer broke. So `eval retrieval` sco
 
 ## The labeled set
 
-[evals/dataset.json](../evals/dataset.json) is the ground truth. Each retrieval case names the document and section a correct search must return. Categories exist so a regression points at a kind of weakness, not just a lower average:
+[evals/dataset.json](../apps/server/evals/dataset.json) is the ground truth. Each retrieval case names the document and section a correct search must return. Categories exist so a regression points at a kind of weakness, not just a lower average:
 
 | Category | What it tests |
 | --- | --- |
@@ -23,7 +23,7 @@ Measuring only the final answer hides which layer broke. So `eval retrieval` sco
 | `multi_section` | Needs two sections; tests evidence selection |
 | `no_answer` | Nothing in the corpus answers it; the system must return nothing rather than something plausible |
 
-The corpus in [evals/corpus](../evals/corpus) is synthetic. It also includes traps: a deprecated v1 refund policy (14 days), another tenant's policy (90 days), and a prompt injection hidden in the Billing FAQ. The eval loads everything into throwaway tenants and deletes them afterwards.
+The corpus in [evals/corpus](../apps/server/evals/corpus) is synthetic. It also includes traps: a deprecated v1 refund policy (14 days), another tenant's policy (90 days), and a prompt injection hidden in the Billing FAQ. The eval loads everything into throwaway tenants and deletes them afterwards.
 
 ## Metrics, in plain words
 
@@ -63,14 +63,14 @@ The run also surfaced two eval-harness lessons:
 ```powershell
 npm run eval                    # retrieval: hybrid vs semantic vs lexical, per category
 npm run dev -- eval retrieval --sweep        # also sweep the semantic threshold
-npm run eval:check              # fail (exit 1) if hybrid drops below evals/baseline.json
+npm run eval:check              # fail (exit 1) if hybrid drops below apps/server/evals/baseline.json
 npm run dev -- eval retrieval --save-baseline  # accept the current numbers as the new baseline
 npm run eval:answers            # full agent + LLM judge; sends synthetic corpus text to Groq
 ```
 
 The loop is: change one thing → `npm run eval:check` → read the failures it prints → keep the change only if the numbers say so → `--save-baseline`. Try it: change the `0.55` default in `fuseCandidates` to `0.65` and run `eval:check`. It fails with hit@5 falling from 1.00 to 0.70.
 
-Answer evals are not gated by default because the model is nondeterministic and costs tokens. Run them before changing prompts or models, and compare the per-case JSON in `evals/results/` (gitignored).
+Answer evals are not gated by default because the model is nondeterministic and costs tokens. Run them before changing prompts or models, and compare the per-case JSON in `apps/server/evals/results/` (gitignored).
 
 ## Limits
 
